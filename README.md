@@ -1,6 +1,12 @@
 # @bsvkey/x402-bsv-client
 
+[![npm version](https://img.shields.io/npm/v/@bsvkey/x402-bsv-client.svg)](https://www.npmjs.com/package/@bsvkey/x402-bsv-client)
+[![license: MIT](https://img.shields.io/npm/l/@bsvkey/x402-bsv-client.svg)](./LICENSE)
+[![node](https://img.shields.io/node/v/@bsvkey/x402-bsv-client.svg)](https://nodejs.org)
+
 Pay an [x402](https://x402.org) `402 Payment Required` **in BSV**, in one line.
+
+**Live gateway:** [inference.bsvkey.com/#x402](https://inference.bsvkey.com/#x402) · discovery at [`/v1/x402`](https://inference.bsvkey.com/v1/x402)
 
 x402 ships payment builders for EVM (EIP-3009) and Solana. This is the missing
 one for the **`bsv-p2pkh`** scheme — so an AI agent can pay a BSV-settled x402
