@@ -1,6 +1,6 @@
 {
   "name": "@bsvkey/x402-bsv-client",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Pay an x402 HTTP 402 in BSV — the missing bsv-p2pkh payment builder for x402 agents.",
   "type": "module",
   "main": "index.js",

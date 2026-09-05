@@ -16,7 +16,18 @@
 //
 // Peer dependency: @bsv/sdk (v1). Node 18+ (global fetch).
 
-import { PrivateKey, P2PKH, Transaction, Utils } from '@bsv/sdk';
+import { PrivateKey, P2PKH, Transaction, Utils, Mnemonic, HD } from '@bsv/sdk';
+
+// Accept either a WIF (starts K/L/5) or a 12/24-word BIP-39 recovery phrase
+// (derived on BSV path m/44'/236'/0'/0/0 — the same path inference.bsvkey.com uses),
+// so a key generated on the site works here directly.
+function toPrivateKey(secret) {
+  const s = String(secret || '').trim().replace(/\s+/g, ' ');
+  if (!s) throw new Error('no key: set BSV_WIF to a WIF or a 12-word recovery phrase');
+  if (Mnemonic.isValid(s)) return HD.fromSeed(Mnemonic.fromString(s).toSeed()).derive("m/44'/236'/0'/0/0").privKey;
+  try { return PrivateKey.fromWif(s); } catch {}
+  throw new Error('BSV_WIF is neither a valid WIF (starts K/L/5) nor a valid recovery phrase — you may have pasted a public address (starts with 1)');
+}
 
 const NET = { bsv: 'main', 'bsv-testnet': 'test', 'bsv-dev': 'main' };
 const PREFIX = { main: [0x00], test: [0x6f] };
@@ -45,7 +56,7 @@ export async function buildX402Payment(body402, wif, { wocBase } = {}) {
   const prefix = PREFIX[net];
   const base = (wocBase || 'https://api.whatsonchain.com/v1/bsv') + '/' + net;
 
-  const priv = PrivateKey.fromWif(wif);
+  const priv = toPrivateKey(wif);
   const pub = priv.toPublicKey();
   const addr = pub.toAddress(prefix);
   const sess = session(addr);

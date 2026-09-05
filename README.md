@@ -53,7 +53,10 @@ const xPayment = await buildX402Payment(body402, wif);
 
 ## Notes
 
-- **Funding:** the WIF's address must hold enough BSV to cover the quoted amount + a
+- **Key format:** `wif` accepts either a **WIF** (starts `K`/`L`/`5`) or a **12/24-word
+  recovery phrase** (derived on the BSV path `m/44'/236'/0'/0/0`, the same one
+  inference.bsvkey.com uses) — so a wallet generated on the site works here directly.
+- **Funding:** the key's address must hold enough BSV to cover the quoted amount + a
   small fee. Fund it like any BSV address (the `payTo`/QR flow on inference.bsvkey.com works).
 - **Back-to-back calls are safe:** the client chains each payment off its own change,
   so a loop of paid calls won't double-spend while the mempool catches up.
