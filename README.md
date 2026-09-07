@@ -64,4 +64,36 @@ const xPayment = await buildX402Payment(body402, wif);
   server's address directly.
 - **Networks:** `bsv` (mainnet) and `bsv-testnet`. Testnet lets you dry-run for free.
 
+## Verify usage receipts
+
+If you use the BSVKey inference broker over a **prepaid channel**, every settled
+call returns a signed `usageReceipt`. This package verifies them offline, so you
+can audit the broker's meter without trusting its word and without a round-trip.
+
+```js
+import { verifyReceiptChain } from '@bsvkey/x402-bsv-client/usage-receipt';
+
+// Pin the broker key once (GET https://inference.bsvkey.com/v1/receipt-key).
+const { receiptPubKey } = await (await fetch('https://inference.bsvkey.com/v1/receipt-key')).json();
+
+// `receipts` = the usageReceipt from each call on your channel.
+const audit = await verifyReceiptChain(receipts, {
+  expectedSigner: receiptPubKey,
+  channelId: myChannelId,
+  fundedSats: myChannelFundedSats,
+});
+// { ok: true, count, cumSats, cumTokens }  — or { ok: false, reason, seq }
+```
+
+`verifyReceiptChain` checks, across the whole chain, that: each signature
+recovers to the pinned broker key, every receipt is for your channel, the
+sequence has no gap or replay, the running totals reconcile
+(`cumSats`/`cumTokens`), and spending never exceeds the funded amount. There is
+also a single-receipt `verifyReceipt(receipt)` → `{ ok, signer }`.
+
+**What this proves:** the broker signed these exact numbers (non-repudiable),
+none were double-counted, and the totals add up and stay within what you funded.
+**What it does not prove:** that the token counts equal the model's true usage.
+That is still the broker's meter. Spec: https://inference.bsvkey.com/usage-receipts.md
+
 MIT.
