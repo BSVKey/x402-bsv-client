@@ -1,6 +1,6 @@
 {
   "name": "@bsvkey/x402-bsv-client",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Pay an x402 HTTP 402 in BSV — the missing bsv-p2pkh payment builder for x402 agents.",
   "type": "module",
   "main": "index.js",
@@ -9,7 +9,7 @@
   "author": "Embryo Space Inc. (DBA BSVKey)",
   "homepage": "https://inference.bsvkey.com/v1/x402",
   "engines": { "node": ">=18" },
-  "peerDependencies": { "@bsv/sdk": "^1" },
+  "peerDependencies": { "@bsv/sdk": "^2" },
   "keywords": ["x402", "bsv", "micropayments", "ai-agents", "402", "payments", "http-402"],
   "license": "MIT",
   "repository": { "type": "git", "url": "https://github.com/BSVKey/x402-bsv-client" }
