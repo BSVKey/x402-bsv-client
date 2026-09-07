@@ -88,12 +88,26 @@ const audit = await verifyReceiptChain(receipts, {
 `verifyReceiptChain` checks, across the whole chain, that: each signature
 recovers to the pinned broker key, every receipt is for your channel, the
 sequence has no gap or replay, the running totals reconcile
-(`cumSats`/`cumTokens`), and spending never exceeds the funded amount. There is
-also a single-receipt `verifyReceipt(receipt)` → `{ ok, signer }`.
+(`cumSats`/`cumTokens`), spending never exceeds the funded amount, and each
+**charge** recomputes from the published formula (you can be charged less, never
+more). Single-receipt helpers: `verifyReceipt(receipt)` → `{ ok, signer }`,
+`verifyCharge(receipt)`, and `verifyMeter(receipt, { system, prompt, completion })`.
 
-**What this proves:** the broker signed these exact numbers (non-repudiable),
-none were double-counted, and the totals add up and stay within what you funded.
-**What it does not prove:** that the token counts equal the model's true usage.
-That is still the broker's meter. Spec: https://inference.bsvkey.com/usage-receipts.md
+### Verify the meter (the token count itself)
+
+The v2 receipt binds the exact bytes and is metered by a pinned, deterministic
+tokenizer, so you recompute the token count from what you sent and received:
+
+```js
+import { verifyMeter } from '@bsvkey/x402-bsv-client/usage-receipt';
+const m = verifyMeter(receipt, { system, prompt, completion }); // { ok } / { ok:false, reason }
+```
+
+**What this proves:** the broker signed these exact numbers (non-repudiable), the
+token count is the published function of the exact bytes you exchanged, the charge
+is the published function of those tokens, none were double-counted, and the
+totals stay within what you funded. **What it does not prove:** that
+`bsvkey-meter/1` equals a model provider's internal token count (it is BSVKey's
+own published unit). Spec: https://inference.bsvkey.com/usage-receipts.md
 
 MIT.
