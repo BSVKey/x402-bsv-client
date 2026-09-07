@@ -62,6 +62,23 @@ export function computeClaimId(obj) {
 export function meterInputText(system, prompt) {
   return (system ? String(system) + '\n\n' : '') + String(prompt || '');
 }
+// The OpenAI-compatible endpoint (/v1/chat/completions) meters the FLATTENED
+// chat messages, not the raw fields: system messages are joined with '\n', and
+// every other turn becomes "User: <content>" / "Assistant: <content>", joined
+// with '\n'. To recompute inputDigest for a chat call, pass the SAME messages
+// array you sent (verifyMeter does this for you when given { messages }). This is
+// byte-identical to the broker's src/http/openai.js messagesToPrompt.
+export function messagesToPrompt(messages) {
+  const systemParts = [], turns = [];
+  for (const m of (Array.isArray(messages) ? messages : [])) {
+    const content = typeof m.content === 'string'
+      ? m.content
+      : Array.isArray(m.content) ? m.content.map((p) => p.text || '').join('') : '';
+    if (m.role === 'system') systemParts.push(content);
+    else turns.push(`${m.role === 'assistant' ? 'Assistant' : 'User'}: ${content}`);
+  }
+  return { system: systemParts.join('\n') || undefined, prompt: turns.join('\n') };
+}
 export function estimateTokens(text) {
   if (!text) return 0;
   const byChars = Math.ceil(text.length / 4);
@@ -111,8 +128,12 @@ export function verifyCharge(receipt) {
 }
 
 // The meter: recompute token counts + byte digests from the EXACT bytes you hold.
-export function verifyMeter(receipt, { system, prompt, completion } = {}) {
+// Pass EITHER the raw { system, prompt } (broker-native /v1/infer) OR the exact
+// { messages } array you sent to /v1/chat/completions (the OpenAI shim, which meters
+// the flattened messages). If `messages` is given it takes precedence.
+export function verifyMeter(receipt, { system, prompt, completion, messages } = {}) {
   if (receipt.meter !== METER_ID) return { ok: false, reason: `unknown_meter:${receipt.meter}` };
+  if (messages !== undefined) { const f = messagesToPrompt(messages); system = f.system; prompt = f.prompt; }
   const input = meterInputText(system, prompt);
   const output = String(completion || '');
   if (sha256hex(input) !== receipt.inputDigest) return { ok: false, reason: 'inputDigest_mismatch' };

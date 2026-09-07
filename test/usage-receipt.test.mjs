@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { PrivateKey, BSM, Utils } from '@bsv/sdk';
 import {
   verifyReceipt, verifyReceiptChain, verifyCharge, verifyMeter,
-  computeClaimId, computeChargeSats, meterInputText, estimateTokens, RECEIPT_SCHEMA, METER_ID,
+  computeClaimId, computeChargeSats, meterInputText, messagesToPrompt, estimateTokens, RECEIPT_SCHEMA, METER_ID,
 } from '../usage-receipt.js';
 
 const sha = (s) => createHash('sha256').update(String(s), 'utf8').digest('hex');
@@ -57,6 +57,20 @@ test('meter recomputes from the exact bytes', async () => {
   const r = sign(priv, { inputTokens: inTok, outputTokens: outTok, inputDigest: sha(input), outputDigest: sha(completion), sats: computeChargeSats({ inputTokens: inTok, outputTokens: outTok, rateInPer1k: RATE_IN, rateOutPer1k: RATE_OUT, minChargeSats: MIN }) });
   assert.deepEqual(verifyMeter(r, { system, prompt, completion }), { ok: true });
   assert.equal(verifyMeter(r, { system, prompt, completion: 'tampered' }).ok, false);
+});
+
+test('meter verifies from the flattened OpenAI messages (chat-completions path)', async () => {
+  const priv = PrivateKey.fromRandom();
+  const messages = [{ role: 'system', content: 'be terse' }, { role: 'user', content: 'hi there' }];
+  const flat = messagesToPrompt(messages);
+  assert.equal(flat.system, 'be terse');
+  assert.equal(flat.prompt, 'User: hi there'); // role-prefixed, as the broker meters it
+  const input = meterInputText(flat.system, flat.prompt), completion = 'hello';
+  const inTok = estimateTokens(input), outTok = estimateTokens(completion);
+  const r = sign(priv, { inputTokens: inTok, outputTokens: outTok, inputDigest: sha(input), outputDigest: sha(completion), sats: computeChargeSats({ inputTokens: inTok, outputTokens: outTok, rateInPer1k: RATE_IN, rateOutPer1k: RATE_OUT, minChargeSats: MIN }) });
+  assert.deepEqual(verifyMeter(r, { messages, completion }), { ok: true });
+  // the raw recipe (system+prompt without flattening) must NOT match this receipt
+  assert.equal(verifyMeter(r, { system: 'be terse', prompt: 'hi there', completion }).ok, false);
 });
 
 test('tamper, wrong signer, replay, gap, bad schema', async () => {

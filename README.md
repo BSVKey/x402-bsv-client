@@ -91,17 +91,27 @@ sequence has no gap or replay, the running totals reconcile
 (`cumSats`/`cumTokens`), spending never exceeds the funded amount, and each
 **charge** recomputes from the published formula (you can be charged less, never
 more). Single-receipt helpers: `verifyReceipt(receipt)` → `{ ok, signer }`,
-`verifyCharge(receipt)`, and `verifyMeter(receipt, { system, prompt, completion })`.
+`verifyCharge(receipt)`, and `verifyMeter(receipt, { messages, completion })` (or
+`{ system, prompt, completion }` on the raw `/v1/infer` path — see below).
 
 ### Verify the meter (the token count itself)
 
 The v2 receipt binds the exact bytes and is metered by a pinned, deterministic
-tokenizer, so you recompute the token count from what you sent and received:
+tokenizer, so you recompute the token count from what you sent and received.
+
+**On the OpenAI-compatible `/v1/chat/completions` path, pass the same `messages`
+array you sent** — that endpoint meters the *flattened* messages (system joined
+with `\n`; every other turn rendered as `User: …` / `Assistant: …`, joined with
+`\n`), so `verifyMeter` needs the messages to reproduce that transform for you:
 
 ```js
 import { verifyMeter } from '@bsvkey/x402-bsv-client/usage-receipt';
-const m = verifyMeter(receipt, { system, prompt, completion }); // { ok } / { ok:false, reason }
+const m = verifyMeter(receipt, { messages, completion }); // { ok } / { ok:false, reason }
 ```
+
+On the broker-native `/v1/infer` path (raw fields), pass `{ system, prompt, completion }`
+instead. (`messagesToPrompt(messages)` is exported if you want the flattened
+`{ system, prompt }` yourself.)
 
 **What this proves:** the broker signed these exact numbers (non-repudiable), the
 token count is the published function of the exact bytes you exchanged, the charge
