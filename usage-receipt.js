@@ -145,11 +145,16 @@ export function verifyMeter(receipt, { system, prompt, completion, messages } = 
 
 // Verify a whole channel's receipt chain offline.
 //   opts.expectedSigner : broker key pinned from GET /v1/receipt-key
-//   opts.channelId      : your channel
-//   opts.fundedSats     : the channel's on-chain funded amount
+//   opts.channelId      : your channel — pass it, or the "my channel and no other"
+//                         guarantee is not checked
+//   opts.fundedSats     : the channel's on-chain funded amount. Supply the amount
+//                         YOU funded on-chain; the receipt's own fundedSats is the
+//                         broker's assertion, not proof of the funding tx.
+// An empty chain proves nothing, so it is refused ({ ok:false, reason:'empty_chain' }).
 // Also recomputes each charge. Returns { ok, count, cumSats, cumTokens } or
 // { ok:false, reason, seq }.
 export async function verifyReceiptChain(receipts, opts = {}) {
+  if (!Array.isArray(receipts) || receipts.length === 0) return { ok: false, reason: 'empty_chain', count: 0 };
   const list = [...receipts].sort((a, b) => (a.seq || 0) - (b.seq || 0));
   let prevSeq = 0, prevCumSats = 0, prevCumTokens = 0;
   for (const r of list) {

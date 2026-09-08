@@ -73,6 +73,11 @@ test('meter verifies from the flattened OpenAI messages (chat-completions path)'
   assert.equal(verifyMeter(r, { system: 'be terse', prompt: 'hi there', completion }).ok, false);
 });
 
+test('an empty chain proves nothing and is refused', async () => {
+  assert.deepEqual(await verifyReceiptChain([]), { ok: false, reason: 'empty_chain', count: 0 });
+  assert.equal((await verifyReceiptChain(undefined)).reason, 'empty_chain');
+});
+
 test('tamper, wrong signer, replay, gap, bad schema', async () => {
   const priv = PrivateKey.fromRandom(), attacker = PrivateKey.fromRandom();
   const r = chain(priv, 3), signer = priv.toPublicKey().toString();

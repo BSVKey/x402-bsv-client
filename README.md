@@ -90,7 +90,25 @@ recovers to the pinned broker key, every receipt is for your channel, the
 sequence has no gap or replay, the running totals reconcile
 (`cumSats`/`cumTokens`), spending never exceeds the funded amount, and each
 **charge** recomputes from the published formula (you can be charged less, never
-more). Single-receipt helpers: `verifyReceipt(receipt)` → `{ ok, signer }`,
+more). An **empty chain is refused** (`reason: 'empty_chain'`) — it proves
+nothing, so a client that lost its receipts fails the check rather than passing
+vacuously.
+
+Two things worth pinning down as an unattended client:
+
+- **`fundedSats` is yours to supply.** The receipt carries a `fundedSats`, but
+  that is the broker's own signed assertion, not proof of the funding
+  transaction. For "spending never exceeds what the channel actually paid" to
+  mean the on-chain amount, pass `opts.fundedSats` set to the amount **you**
+  funded. Omit it and the check falls back to the broker-asserted number.
+- **Pass `opts.channelId`.** The "my channel and no other" check only runs when
+  you pass the channel you funded; without it a receipt for a different channel
+  is not rejected.
+- **The receipt is the ledger; the balance endpoint is a cache.** The broker's
+  `GET /v1/channels/:id` can lag the signed receipt by ~20s. Trust the receipt's
+  `cumSats`/`balanceSatsAfter`; treat the endpoint as eventually-consistent.
+
+Single-receipt helpers: `verifyReceipt(receipt)` → `{ ok, signer }`,
 `verifyCharge(receipt)`, and `verifyMeter(receipt, { messages, completion })` (or
 `{ system, prompt, completion }` on the raw `/v1/infer` path — see below).
 
