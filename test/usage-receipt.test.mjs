@@ -78,6 +78,16 @@ test('an empty chain proves nothing and is refused', async () => {
   assert.equal((await verifyReceiptChain(undefined)).reason, 'empty_chain');
 });
 
+test('a receipt asserting a different fundedSats than you supplied is refused', async () => {
+  const priv = PrivateKey.fromRandom(), signer = priv.toPublicKey().toString();
+  // A validly re-signed receipt that claims a larger funded amount than we funded.
+  const r = sign(priv, { seq: 1, sats: 10, cumSats: 10, cumTokens: 100, fundedSats: FUNDED + 5000 });
+  assert.equal((await verifyReceiptChain([r], { expectedSigner: signer, fundedSats: FUNDED })).reason, 'funded_mismatch');
+  // Matching fundedSats still passes.
+  const r2 = sign(priv, { seq: 1, sats: 10, cumSats: 10, cumTokens: 100, fundedSats: FUNDED });
+  assert.equal((await verifyReceiptChain([r2], { expectedSigner: signer, fundedSats: FUNDED })).ok, true);
+});
+
 test('tamper, wrong signer, replay, gap, bad schema', async () => {
   const priv = PrivateKey.fromRandom(), attacker = PrivateKey.fromRandom();
   const r = chain(priv, 3), signer = priv.toPublicKey().toString();

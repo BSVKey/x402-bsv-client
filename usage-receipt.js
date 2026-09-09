@@ -149,7 +149,9 @@ export function verifyMeter(receipt, { system, prompt, completion, messages } = 
 //                         guarantee is not checked
 //   opts.fundedSats     : the channel's on-chain funded amount. Supply the amount
 //                         YOU funded on-chain; the receipt's own fundedSats is the
-//                         broker's assertion, not proof of the funding tx.
+//                         broker's assertion, not proof of the funding tx. When
+//                         given, a receipt whose fundedSats differs is rejected
+//                         (funded_mismatch), and cumSats is bounded by it.
 // An empty chain proves nothing, so it is refused ({ ok:false, reason:'empty_chain' }).
 // Also recomputes each charge. Returns { ok, count, cumSats, cumTokens } or
 // { ok:false, reason, seq }.
@@ -167,7 +169,14 @@ export async function verifyReceiptChain(receipts, opts = {}) {
     if (r.seq !== prevSeq + 1) return { ok: false, reason: prevSeq && r.seq === prevSeq ? 'replayed_seq' : 'seq_gap', seq: r.seq };
     if (r.cumSats !== prevCumSats + r.sats) return { ok: false, reason: 'cumSats_does_not_reconcile', seq: r.seq };
     if (r.cumTokens !== prevCumTokens + r.inputTokens + r.outputTokens) return { ok: false, reason: 'cumTokens_does_not_reconcile', seq: r.seq };
-    if (opts.fundedSats !== undefined && r.cumSats > opts.fundedSats) return { ok: false, reason: 'cumSats_exceeds_funded', seq: r.seq };
+    if (opts.fundedSats !== undefined) {
+      // The receipt's own fundedSats is the broker's assertion; if you supplied
+      // the amount you actually funded, a receipt claiming a different one is
+      // rejected (not just bounded). Without this a broker could sign a higher
+      // fundedSats to widen the cap.
+      if (r.fundedSats !== opts.fundedSats) return { ok: false, reason: 'funded_mismatch', seq: r.seq };
+      if (r.cumSats > opts.fundedSats) return { ok: false, reason: 'cumSats_exceeds_funded', seq: r.seq };
+    }
     prevSeq = r.seq; prevCumSats = r.cumSats; prevCumTokens = r.cumTokens;
   }
   return { ok: true, count: list.length, cumSats: prevCumSats, cumTokens: prevCumTokens };
