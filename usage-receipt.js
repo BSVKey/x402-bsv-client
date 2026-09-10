@@ -147,18 +147,23 @@ export function verifyMeter(receipt, { system, prompt, completion, messages } = 
 //   opts.expectedSigner : broker key pinned from GET /v1/receipt-key
 //   opts.channelId      : your channel — pass it, or the "my channel and no other"
 //                         guarantee is not checked
-//   opts.fundedSats     : the channel's on-chain funded amount. Supply the amount
-//                         YOU funded on-chain; the receipt's own fundedSats is the
-//                         broker's assertion, not proof of the funding tx. When
-//                         given, a receipt whose fundedSats differs is rejected
-//                         (funded_mismatch), and cumSats is bounded by it.
+//   opts.fundedSats     : the amount YOU funded on-chain. With top-ups this is the
+//                         CURRENT total (open + every top-up you made). Each
+//                         receipt carries the broker's own signed fundedSats at
+//                         that point; it must be monotonic (a top-up only raises
+//                         it, never drops -> funded_decreased) and never exceed
+//                         what you actually funded (r.fundedSats > opts.fundedSats
+//                         -> funded_mismatch; so supplying 2999 against a 3000
+//                         receipt still trips it). cumSats is bounded by each
+//                         receipt's OWN fundedSats, so the bound only fires when
+//                         the broker signs a cumSats above its own stated funding.
 // An empty chain proves nothing, so it is refused ({ ok:false, reason:'empty_chain' }).
 // Also recomputes each charge. Returns { ok, count, cumSats, cumTokens } or
 // { ok:false, reason, seq }.
 export async function verifyReceiptChain(receipts, opts = {}) {
   if (!Array.isArray(receipts) || receipts.length === 0) return { ok: false, reason: 'empty_chain', count: 0 };
   const list = [...receipts].sort((a, b) => (a.seq || 0) - (b.seq || 0));
-  let prevSeq = 0, prevCumSats = 0, prevCumTokens = 0;
+  let prevSeq = 0, prevCumSats = 0, prevCumTokens = 0, prevFunded = 0;
   for (const r of list) {
     const v = await verifyReceipt(r);
     if (!v.ok) return { ok: false, reason: v.reason, seq: r.seq };
@@ -169,13 +174,17 @@ export async function verifyReceiptChain(receipts, opts = {}) {
     if (r.seq !== prevSeq + 1) return { ok: false, reason: prevSeq && r.seq === prevSeq ? 'replayed_seq' : 'seq_gap', seq: r.seq };
     if (r.cumSats !== prevCumSats + r.sats) return { ok: false, reason: 'cumSats_does_not_reconcile', seq: r.seq };
     if (r.cumTokens !== prevCumTokens + r.inputTokens + r.outputTokens) return { ok: false, reason: 'cumTokens_does_not_reconcile', seq: r.seq };
-    if (opts.fundedSats !== undefined) {
-      // The receipt's own fundedSats is the broker's assertion; if you supplied
-      // the amount you actually funded, a receipt claiming a different one is
-      // rejected (not just bounded). Without this a broker could sign a higher
-      // fundedSats to widen the cap.
-      if (r.fundedSats !== opts.fundedSats) return { ok: false, reason: 'funded_mismatch', seq: r.seq };
-      if (r.cumSats > opts.fundedSats) return { ok: false, reason: 'cumSats_exceeds_funded', seq: r.seq };
+    if (r.fundedSats !== undefined) {
+      // fundedSats is monotonic across a channel: a top-up raises it, so a DROP is
+      // tampering. A receipt must never claim MORE funding than you actually put
+      // in. Then cumSats is bounded by the receipt's own fundedSats.
+      if (r.fundedSats < prevFunded) return { ok: false, reason: 'funded_decreased', seq: r.seq };
+      if (opts.fundedSats !== undefined && r.fundedSats > opts.fundedSats) return { ok: false, reason: 'funded_mismatch', seq: r.seq };
+      if (r.cumSats > r.fundedSats) return { ok: false, reason: 'cumSats_exceeds_funded', seq: r.seq };
+      prevFunded = r.fundedSats;
+    } else if (opts.fundedSats !== undefined && r.cumSats > opts.fundedSats) {
+      // Receipt omitted fundedSats: a missing field must not escape the cap you supplied.
+      return { ok: false, reason: 'cumSats_exceeds_funded', seq: r.seq };
     }
     prevSeq = r.seq; prevCumSats = r.cumSats; prevCumTokens = r.cumTokens;
   }

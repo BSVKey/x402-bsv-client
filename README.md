@@ -100,10 +100,14 @@ Two things worth pinning down as an unattended client:
   that is the broker's own signed assertion, not proof of the funding
   transaction. For "spending never exceeds what the channel actually paid" to
   mean the on-chain amount, pass `opts.fundedSats` set to the amount **you**
-  funded. When you do, a receipt that asserts a *different* `fundedSats` is
-  rejected (`funded_mismatch`), not just bounded, so the broker can't widen the
-  cap by signing a larger number. Omit it and the check falls back to the
-  broker-asserted number.
+  funded. When you do, a receipt that claims **more** funding than you supplied
+  is rejected (`funded_mismatch`), so the broker can't widen the cap by signing a
+  larger number, and `cumSats` is bounded by each receipt's own `fundedSats`.
+  **Top-ups are supported:** `fundedSats` may rise across the chain (a drop is
+  rejected as `funded_decreased`), so after you top a channel up, pass your new
+  **current total** and the whole chain — the receipts before and after the
+  top-up — verifies in one call. Omit `opts.fundedSats` and the check falls back
+  to the broker-asserted number.
 - **Pass `opts.channelId`.** The "my channel and no other" check only runs when
   you pass the channel you funded; without it a receipt for a different channel
   is not rejected.

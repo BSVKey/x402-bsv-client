@@ -1,18 +1,48 @@
 {
   "name": "@bsvkey/x402-bsv-client",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "Pay an x402 HTTP 402 in BSV — the missing bsv-p2pkh payment builder for x402 agents. Also verifies BSVKey inference usage receipts.",
   "type": "module",
   "main": "index.js",
-  "exports": { ".": "./index.js", "./usage-receipt": "./usage-receipt.js" },
-  "files": ["index.js", "usage-receipt.js", "example.js", "README.md", "LICENSE"],
-  "scripts": { "test": "node --test" },
+  "exports": {
+    ".": "./index.js",
+    "./usage-receipt": "./usage-receipt.js"
+  },
+  "files": [
+    "index.js",
+    "usage-receipt.js",
+    "example.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
   "author": "Embryo Space Inc. (DBA BSVKey)",
   "homepage": "https://inference.bsvkey.com/v1/x402",
-  "engines": { "node": ">=18" },
-  "peerDependencies": { "@bsv/sdk": "^2" },
-  "devDependencies": { "@bsv/sdk": "^2.4.2" },
-  "keywords": ["x402", "bsv", "micropayments", "ai-agents", "402", "payments", "http-402", "usage-receipt", "verifiable"],
+  "engines": {
+    "node": ">=18"
+  },
+  "peerDependencies": {
+    "@bsv/sdk": "^2"
+  },
+  "devDependencies": {
+    "@bsv/sdk": "^2.4.2"
+  },
+  "keywords": [
+    "x402",
+    "bsv",
+    "micropayments",
+    "ai-agents",
+    "402",
+    "payments",
+    "http-402",
+    "usage-receipt",
+    "verifiable"
+  ],
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/BSVKey/x402-bsv-client" }
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BSVKey/x402-bsv-client"
+  }
 }

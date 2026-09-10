@@ -78,6 +78,24 @@ test('an empty chain proves nothing and is refused', async () => {
   assert.equal((await verifyReceiptChain(undefined)).reason, 'empty_chain');
 });
 
+test('top-up: a chain whose fundedSats rises mid-way verifies with your current total', async () => {
+  const priv = PrivateKey.fromRandom(); const signer = priv.toPublicKey().toString();
+  const per = computeChargeSats({ inputTokens: 40, outputTokens: 60, rateInPer1k: RATE_IN, rateOutPer1k: RATE_OUT, minChargeSats: MIN });
+  // Funded 3*per, then topped up to 6*per at seq 3 (fundedSats rises with the top-up).
+  const rs = [
+    sign(priv, { seq: 1, sats: per, cumSats: per, cumTokens: 100, fundedSats: 3 * per }),
+    sign(priv, { seq: 2, sats: per, cumSats: 2 * per, cumTokens: 200, fundedSats: 3 * per }),
+    sign(priv, { seq: 3, sats: per, cumSats: 3 * per, cumTokens: 300, fundedSats: 6 * per }),
+  ];
+  // Supplying the CURRENT total (6*per) verifies the whole chain across the top-up.
+  assert.equal((await verifyReceiptChain(rs, { expectedSigner: signer, channelId: CHAN, fundedSats: 6 * per })).ok, true);
+  // Supplying less than a receipt asserts still trips (broker claims more than you funded).
+  assert.equal((await verifyReceiptChain(rs, { expectedSigner: signer, fundedSats: 6 * per - 1 })).reason, 'funded_mismatch');
+  // A fundedSats that DROPS mid-chain is tampering.
+  const dropped = [rs[0], rs[1], sign(priv, { seq: 3, sats: per, cumSats: 3 * per, cumTokens: 300, fundedSats: 2 * per })];
+  assert.equal((await verifyReceiptChain(dropped, { expectedSigner: signer, fundedSats: 6 * per })).reason, 'funded_decreased');
+});
+
 test('a receipt asserting a different fundedSats than you supplied is refused', async () => {
   const priv = PrivateKey.fromRandom(), signer = priv.toPublicKey().toString();
   // A validly re-signed receipt that claims a larger funded amount than we funded.
