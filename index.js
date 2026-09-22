@@ -126,8 +126,21 @@ export async function fetchWithX402(url, init = {}, { wif, wocBase, paymentBuild
 }
 
 // Decode the settlement result from a paid 200 response (the on-chain txid, etc.).
+// This is where the receipt-binding inputs come from: the returned object carries
+// the settlement txid (and the payer address) YOU paid, which you pass to
+// bindX402Receipt / verifyX402ReceiptFull so a receipt is checked against your own
+// payment rather than trusted as a bearer object.
 export function readSettlement(res) {
   const h = res.headers.get('x-payment-response');
   if (!h) return null;
   try { return JSON.parse(Buffer.from(h, 'base64').toString('utf8')); } catch { return null; }
 }
+
+// Per-call x402 delivered-receipt verification (schema x402-receipt/1), plus the
+// schema-dispatch entry point verifyAnyReceipt that also handles usage-receipt/2.
+// Re-exported so a caller gets the whole receipt surface from the package root
+// and never has to hand-roll the x402 check from the spec.
+export {
+  verifyX402Receipt, bindX402Receipt, verifyX402Delivery, verifyX402ReceiptFull,
+  verifyAnyReceipt, X402_RECEIPT_SCHEMA,
+} from './x402-receipt.js';

@@ -145,4 +145,42 @@ totals stay within what you funded. **What it does not prove:** that
 `bsvkey-meter/1` equals a model provider's internal token count (it is BSVKey's
 own published unit). Spec: https://inference.bsvkey.com/usage-receipts.md
 
+## Verify per-call x402 receipts
+
+The prepaid-channel path returns a `usageReceipt` (above). The **per-call** paths
+(`/v1/x402/chat/completions`, `/v1/x402/base/chat/completions`) return a per-call
+**delivered receipt** instead: schema `bsvkey.x402-receipt/1`, no channel or
+balances, binding one response to one on-chain settlement. Its verifier is a
+separate schema, so the channel verifier rejects it with `unknown_field:rail`. Use
+`verifyAnyReceipt` (routes on the receipt's own `v`) or the x402-specific helpers:
+
+```js
+import { readSettlement, verifyX402ReceiptFull } from '@bsvkey/x402-bsv-client';
+
+const res = await fetchWithX402(url, init, { wif });
+const receipt = (await res.clone().json()).receipt;   // the delivered receipt
+const paid = readSettlement(res);                     // { txid, payer, ... } YOU paid
+
+const { receiptPubKey } = await (await fetch('https://inference.bsvkey.com/v1/receipt-key')).json();
+const v = await verifyX402ReceiptFull(receipt, {
+  expectedSigner: receiptPubKey,       // signer is the pinned broker key
+  settlementRef: paid.txid,            // REQUIRED — the tx you paid, from your context
+  payer: paid.payer,                   // optional — the address you paid from
+  messages, completion,                // the response you hold
+}); // { ok:true, signer } / { ok:false, reason }
+```
+
+**Bind it to your own payment.** A receipt is a *bearer object*: recomputing its
+id, recovering its signer, and matching the delivered bytes are all true for
+whoever holds it. It is **yours** only when you check its `settlementRef` against
+the txid you actually paid — which is why `settlementRef` is **required** and an
+unbound check *refuses* rather than passing. Pass it from `readSettlement(res)`,
+never read it back out of the receipt. Lower-level pieces if you want them:
+`verifyX402Receipt` (authorship), `bindX402Receipt(receipt, { settlementRef, payTo, amountAtomic, payer })`
+(the binding), `verifyX402Delivery(receipt, { messages, completion })` (the bytes).
+
+**What this proves:** the broker signed that this exact response was delivered for
+that settlement, and — once bound — for **your** settlement. **What it does not
+prove:** that the compute was correct.
+
 MIT.
