@@ -27,6 +27,16 @@ async function sdk() {
 }
 
 export const RECEIPT_SCHEMA = 'bsvkey.usage-receipt/2';
+// v3 = v2 plus provider-reported tokens the meter can't see (a thinking model's
+// hidden reasoning, injected web-search results), billed at the same rates. The
+// broker emits v3 ONLY for calls that have hidden tokens; everything else is v2.
+// You can check that the charge recomputes exactly and that hidden output never
+// exceeds your own output allowance (maxOutputTokens). The hidden counts are the
+// provider's usage relayed by the broker (hiddenSource 'provider') or its
+// published estimate when the provider reported none ('estimate').
+export const RECEIPT_SCHEMA_V3 = 'bsvkey.usage-receipt/3';
+const V3_FIELDS = ['hiddenInputTokens', 'hiddenOutputTokens', 'hiddenSource', 'maxOutputTokens'];
+const HIDDEN_SOURCES = new Set(['provider', 'estimate']);
 export const METER_ID = 'bsvkey-meter/1';
 
 const CONTENT_FIELDS = [
@@ -34,6 +44,7 @@ const CONTENT_FIELDS = [
   'inputTokens', 'outputTokens', 'inputDigest', 'outputDigest',
   'rateInPer1k', 'rateOutPer1k', 'webSearchSats', 'discountPct', 'minChargeSats',
   'sats', 'cumTokens', 'cumSats', 'fundedSats', 'timestamp',
+  ...V3_FIELDS,
 ];
 const ALLOWED_KEYS = new Set([...CONTENT_FIELDS, 'claimId', 'signature', 'brokerPubKey']);
 
@@ -87,11 +98,26 @@ export function estimateTokens(text) {
 }
 
 // --- the frozen, integer-only charge formula (identical to the broker's) ------
-export function computeChargeSats({ inputTokens, outputTokens, rateInPer1k, rateOutPer1k, webSearchSats = 0, discountPct = 0, minChargeSats }) {
-  const tokenSats = Math.ceil((inputTokens * rateInPer1k + outputTokens * rateOutPer1k) / 1000);
+// Hidden tokens (v3) bill at the same rates; absent (v2) means 0.
+export function computeChargeSats({ inputTokens, outputTokens, hiddenInputTokens = 0, hiddenOutputTokens = 0, rateInPer1k, rateOutPer1k, webSearchSats = 0, discountPct = 0, minChargeSats }) {
+  const tokenSats = Math.ceil(((inputTokens + hiddenInputTokens) * rateInPer1k + (outputTokens + hiddenOutputTokens) * rateOutPer1k) / 1000);
   const gross = tokenSats + webSearchSats;
   const afterDiscount = Math.ceil((gross * (100 - discountPct)) / 100);
   return Math.max(minChargeSats, afterDiscount);
+}
+
+// v3's extra fields must all be present and well-formed; v2 must carry none.
+function checkVersionFields(r) {
+  if (r.v === RECEIPT_SCHEMA) {
+    for (const k of V3_FIELDS) if (r[k] !== undefined) return `unknown_field:${k}`;
+    return null;
+  }
+  const nonNegInt = (x) => Number.isInteger(x) && x >= 0;
+  if (!nonNegInt(r.hiddenInputTokens) || !nonNegInt(r.hiddenOutputTokens)) return 'bad_hidden_tokens';
+  if (r.hiddenInputTokens + r.hiddenOutputTokens === 0) return 'bad_hidden_tokens';
+  if (!HIDDEN_SOURCES.has(r.hiddenSource)) return `bad_hidden_source:${r.hiddenSource}`;
+  if (!nonNegInt(r.maxOutputTokens)) return 'bad_max_output_tokens';
+  return null;
 }
 
 // Authorship + integrity: strict shape, claimId content-address, and recover the
@@ -99,7 +125,9 @@ export function computeChargeSats({ inputTokens, outputTokens, rateInPer1k, rate
 export async function verifyReceipt(receipt) {
   if (receipt === null || typeof receipt !== 'object') return { ok: false, reason: 'not_an_object' };
   for (const k of Object.keys(receipt)) if (!ALLOWED_KEYS.has(k)) return { ok: false, reason: `unknown_field:${k}` };
-  if (receipt.v !== RECEIPT_SCHEMA) return { ok: false, reason: `bad_schema:${receipt.v}` };
+  if (receipt.v !== RECEIPT_SCHEMA && receipt.v !== RECEIPT_SCHEMA_V3) return { ok: false, reason: `bad_schema:${receipt.v}` };
+  const vf = checkVersionFields(receipt);
+  if (vf) return { ok: false, reason: vf };
   if (computeClaimId(receipt).toLowerCase() !== String(receipt.claimId).toLowerCase()) return { ok: false, reason: 'claimId_mismatch' };
   const { BSM, Utils, Signature, BigNumber } = await sdk();
   let raw;
@@ -120,7 +148,11 @@ export async function verifyReceipt(receipt) {
 
 // The charge is the published formula over the receipt's own fields. You can
 // never be charged MORE than that; being charged less is allowed (channel cap).
+// v3: hidden output can never exceed the room left under your output allowance.
 export function verifyCharge(receipt) {
+  if (receipt.v === RECEIPT_SCHEMA_V3 && receipt.hiddenOutputTokens > Math.max(0, receipt.maxOutputTokens - receipt.outputTokens)) {
+    return { ok: false, reason: 'hidden_output_exceeds_allowance', expected: Math.max(0, receipt.maxOutputTokens - receipt.outputTokens), got: receipt.hiddenOutputTokens };
+  }
   const expected = computeChargeSats(receipt);
   if (receipt.sats > expected) return { ok: false, reason: 'overcharge', expected, got: receipt.sats };
   if (receipt.sats < receipt.minChargeSats) return { ok: false, reason: 'below_min_charge', expected: receipt.minChargeSats, got: receipt.sats };

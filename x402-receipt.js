@@ -17,7 +17,7 @@
 //   verifyX402Delivery  the outputDigest (and inputDigest) recompute from the EXACT
 //                       response you hold, under the pinned meter (bsvkey-meter/1)
 //   verifyX402ReceiptFull  all of the above in one call
-//   verifyAnyReceipt    schema-dispatch: x402-receipt/1 OR usage-receipt/2
+//   verifyAnyReceipt    schema-dispatch: x402-receipt/1 OR usage-receipt/2 or /3
 //
 // Pin the broker key once from GET /v1/receipt-key. Peer dep: @bsv/sdk (v2).
 // The txid and your payer address come from readSettlement(res) (index.js), which
@@ -25,7 +25,7 @@
 
 import { createHash } from 'node:crypto';
 import {
-  canonicalize, meterInputText, messagesToPrompt, RECEIPT_SCHEMA as USAGE_RECEIPT_SCHEMA,
+  canonicalize, meterInputText, messagesToPrompt, RECEIPT_SCHEMA as USAGE_RECEIPT_SCHEMA, RECEIPT_SCHEMA_V3 as USAGE_RECEIPT_SCHEMA_V3,
   verifyReceipt as verifyUsageReceipt,
 } from './usage-receipt.js';
 
@@ -147,6 +147,7 @@ export async function verifyAnyReceipt(receipt) {
   switch (receipt.v) {
     case X402_RECEIPT_SCHEMA:   return verifyX402Receipt(receipt);
     case USAGE_RECEIPT_SCHEMA:  return verifyUsageReceipt(receipt);
+    case USAGE_RECEIPT_SCHEMA_V3: return verifyUsageReceipt(receipt);
     default:                    return { ok: false, reason: `unknown_schema:${receipt.v}` };
   }
 }

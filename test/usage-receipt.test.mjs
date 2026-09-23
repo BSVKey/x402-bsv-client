@@ -115,3 +115,29 @@ test('tamper, wrong signer, replay, gap, bad schema', async () => {
   assert.equal((await verifyReceiptChain([r[0], r[2]], { expectedSigner: signer })).reason, 'seq_gap');
   assert.equal((await verifyReceipt({ ...r[0], v: 'bsvkey.usage-receipt/1' })).reason.startsWith('bad_schema') || (await verifyReceipt({ ...r[0], v: 'bsvkey.usage-receipt/1' })).reason === 'claimId_mismatch', true);
 });
+
+// --- usage-receipt/3 (hidden provider tokens) --------------------------------
+function signV3(priv, over = {}) {
+  const hin = over.hiddenInputTokens ?? 20, hout = over.hiddenOutputTokens ?? 300;
+  const sats = computeChargeSats({ inputTokens: 40, outputTokens: 60, hiddenInputTokens: hin, hiddenOutputTokens: hout, rateInPer1k: RATE_IN, rateOutPer1k: RATE_OUT, minChargeSats: MIN });
+  return sign(priv, { v: 'bsvkey.usage-receipt/3', sats, cumSats: sats, hiddenInputTokens: hin, hiddenOutputTokens: hout, hiddenSource: 'provider', maxOutputTokens: 1024, ...over });
+}
+
+test('v3 verifies, its charge recomputes with hidden tokens, and it chains', async () => {
+  const priv = PrivateKey.fromRandom();
+  const r = signV3(priv);
+  assert.equal((await verifyReceipt(r)).ok, true);
+  assert.deepEqual(verifyCharge(r), { ok: true });
+  const c = await verifyReceiptChain([r], { expectedSigner: priv.toPublicKey().toString(), channelId: CHAN, fundedSats: FUNDED });
+  assert.equal(c.ok, true, JSON.stringify(c));
+});
+
+test('v3 rejects over-allowance, overcharge, bad source, and v3 fields on a v2 receipt', async () => {
+  const priv = PrivateKey.fromRandom();
+  assert.equal(verifyCharge(signV3(priv, { hiddenOutputTokens: 2000 })).reason, 'hidden_output_exceeds_allowance');
+  const base = signV3(priv);
+  assert.equal(verifyCharge(signV3(priv, { sats: base.sats + 5 })).reason, 'overcharge');
+  assert.match((await verifyReceipt(signV3(priv, { hiddenSource: 'trust-me' }))).reason, /^bad_hidden_source/);
+  assert.equal((await verifyReceipt(signV3(priv, { hiddenInputTokens: 0, hiddenOutputTokens: 0 }))).reason, 'bad_hidden_tokens');
+  assert.equal((await verifyReceipt(sign(priv, { maxOutputTokens: 5 }))).reason, 'unknown_field:maxOutputTokens');
+});

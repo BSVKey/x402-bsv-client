@@ -145,6 +145,22 @@ totals stay within what you funded. **What it does not prove:** that
 `bsvkey-meter/1` equals a model provider's internal token count (it is BSVKey's
 own published unit). Spec: https://inference.bsvkey.com/usage-receipts.md
 
+### Hidden tokens (usage-receipt/3, 0.6.0+)
+
+Thinking models (Claude Sonnet 5, Opus 5, Opus 5.5, Fable 5.1) reason before they
+answer, and the provider bills that reasoning as output tokens you never see. A
+call with such tokens gets a `bsvkey.usage-receipt/3`: the v2 fields plus
+`hiddenInputTokens`, `hiddenOutputTokens`, `hiddenSource` (`provider` or
+`estimate`) and `maxOutputTokens`. Every other call stays v2, unchanged.
+
+The same verifiers handle both. For v3, `verifyCharge` bills the hidden tokens at
+the receipt's own rates and refuses `hidden_output_exceeds_allowance` if the hidden
+output is larger than the room your own `max_tokens` left; `verifyMeter` still
+checks the visible tokens against your bytes. The hidden counts are the
+provider's usage as relayed by the broker (`provider`), or the broker's published
+estimate when the provider reported none (`estimate`). Versions before 0.6.0
+reject v3 with `bad_schema`.
+
 ## Verify per-call x402 receipts
 
 The prepaid-channel path returns a `usageReceipt` (above). The **per-call** paths

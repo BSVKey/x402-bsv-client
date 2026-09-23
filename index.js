@@ -137,7 +137,7 @@ export function readSettlement(res) {
 }
 
 // Per-call x402 delivered-receipt verification (schema x402-receipt/1), plus the
-// schema-dispatch entry point verifyAnyReceipt that also handles usage-receipt/2.
+// schema-dispatch entry point verifyAnyReceipt that also handles usage-receipt/2 and /3.
 // Re-exported so a caller gets the whole receipt surface from the package root
 // and never has to hand-roll the x402 check from the spec.
 export {
