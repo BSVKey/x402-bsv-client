@@ -120,15 +120,19 @@ export function verifyX402Delivery(receipt, { system, prompt, completion, messag
 // All four checks a caller must pass before treating a receipt as proof of its
 // OWN paid call: internally consistent + signer recovered, signer is the pinned
 // broker key, bound to the payment you made (never skippable), delivered bytes
-// match the response you hold. Omit expectedSigner or the delivery inputs to run
-// a subset; the settlement binding is always required.
+// match the response you hold. The signer pin and the settlement binding are
+// always required (missing -> refused); omit the delivery inputs to skip only
+// the byte check.
 export async function verifyX402ReceiptFull(receipt, {
   expectedSigner, settlementRef, payTo, amountAtomic, payer, requirePayer,
   system, prompt, completion, messages,
 } = {}) {
   const v = await verifyX402Receipt(receipt);
   if (!v.ok) return v;
-  if (expectedSigner && v.signer !== expectedSigner) return { ok: false, reason: 'signer_not_pinned_broker_key' };
+  // The pin is the verifier's acceptance rule, like the settlement bind: a missing
+  // expectedSigner refuses instead of skipping (else any key's receipt passes).
+  if (!expectedSigner) return { ok: false, reason: 'unpinned: verifier must supply expectedSigner (the broker key from GET /v1/receipt-key)' };
+  if (v.signer !== expectedSigner) return { ok: false, reason: 'signer_not_pinned_broker_key' };
   const b = bindX402Receipt(receipt, { settlementRef, payTo, amountAtomic, payer, requirePayer });
   if (!b.ok) return b;
   if (completion !== undefined || system !== undefined || prompt !== undefined || messages !== undefined) {

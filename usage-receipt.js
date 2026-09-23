@@ -176,7 +176,8 @@ export function verifyMeter(receipt, { system, prompt, completion, messages } = 
 }
 
 // Verify a whole channel's receipt chain offline.
-//   opts.expectedSigner : broker key pinned from GET /v1/receipt-key
+//   opts.expectedSigner : REQUIRED. broker key pinned from GET /v1/receipt-key;
+//                         missing refuses ('unpinned'), never skips
 //   opts.channelId      : your channel — pass it, or the "my channel and no other"
 //                         guarantee is not checked
 //   opts.fundedSats     : the amount YOU funded on-chain. With top-ups this is the
@@ -194,12 +195,14 @@ export function verifyMeter(receipt, { system, prompt, completion, messages } = 
 // { ok:false, reason, seq }.
 export async function verifyReceiptChain(receipts, opts = {}) {
   if (!Array.isArray(receipts) || receipts.length === 0) return { ok: false, reason: 'empty_chain', count: 0 };
+  // A chain signed by an unknown key proves nothing: the pin is required.
+  if (!opts || !opts.expectedSigner) return { ok: false, reason: 'unpinned: verifier must supply expectedSigner (the broker key from GET /v1/receipt-key)', count: 0 };
   const list = [...receipts].sort((a, b) => (a.seq || 0) - (b.seq || 0));
   let prevSeq = 0, prevCumSats = 0, prevCumTokens = 0, prevFunded = 0;
   for (const r of list) {
     const v = await verifyReceipt(r);
     if (!v.ok) return { ok: false, reason: v.reason, seq: r.seq };
-    if (opts.expectedSigner && v.signer !== opts.expectedSigner) return { ok: false, reason: 'signer_not_pinned_broker_key', seq: r.seq };
+    if (v.signer !== opts.expectedSigner) return { ok: false, reason: 'signer_not_pinned_broker_key', seq: r.seq };
     const c = verifyCharge(r);
     if (!c.ok) return { ok: false, reason: c.reason, seq: r.seq };
     if (opts.channelId && r.channelId !== opts.channelId) return { ok: false, reason: 'wrong_channel', seq: r.seq };

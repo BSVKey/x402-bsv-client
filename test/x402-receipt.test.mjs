@@ -75,3 +75,19 @@ test('schema dispatch: one entry point for both schemas, no unknown_field:rail',
   assert.notEqual(r.reason, 'unknown_field:rail');
   assert.match((await verifyAnyReceipt({ v: 'bsvkey.nope/1' })).reason, /^unknown_schema/);
 });
+
+test('the signer pin is required: a throwaway-key copy is refused, not passed (Sunnie)', async () => {
+  // Sunnie's case: re-sign a genuine receipt's body with a throwaway key, same
+  // settlementRef and digests, brokerPubKey dropped.
+  const throwaway = PrivateKey.fromRandom();
+  const { claimId, signature, brokerPubKey, ...body } = receipt;
+  const cid = computeClaimId(body);
+  const forged = { ...body, claimId: cid, signature: BSM.sign(Utils.toArray(cid, 'utf8'), throwaway, 'base64') };
+  assert.equal((await verifyX402ReceiptFull(forged, { expectedSigner: pub, settlementRef, system, prompt, completion })).reason, 'signer_not_pinned_broker_key');
+  assert.match((await verifyX402ReceiptFull(forged, { settlementRef, system, prompt, completion })).reason, /^unpinned/);
+  assert.match((await verifyX402ReceiptFull(receipt, { settlementRef, system, prompt, completion })).reason, /^unpinned/, 'even the genuine receipt needs the pin');
+  // verifyAnyReceipt is the integrity primitive: it hands back the signer for YOU to pin.
+  const any = await verifyAnyReceipt(forged);
+  assert.equal(any.ok, true);
+  assert.notEqual(any.signer, pub);
+});

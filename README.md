@@ -78,7 +78,7 @@ const { receiptPubKey } = await (await fetch('https://inference.bsvkey.com/v1/re
 
 // `receipts` = the usageReceipt from each call on your channel.
 const audit = await verifyReceiptChain(receipts, {
-  expectedSigner: receiptPubKey,
+  expectedSigner: receiptPubKey,   // REQUIRED (0.7.0+): missing refuses with 'unpinned'
   channelId: myChannelId,
   fundedSats: myChannelFundedSats,
 });
@@ -167,8 +167,11 @@ The prepaid-channel path returns a `usageReceipt` (above). The **per-call** path
 (`/v1/x402/chat/completions`, `/v1/x402/base/chat/completions`) return a per-call
 **delivered receipt** instead: schema `bsvkey.x402-receipt/1`, no channel or
 balances, binding one response to one on-chain settlement. Its verifier is a
-separate schema, so the channel verifier rejects it with `unknown_field:rail`. Use
-`verifyAnyReceipt` (routes on the receipt's own `v`) or the x402-specific helpers:
+separate schema, so the channel verifier rejects it with `unknown_field:rail`.
+Accept a receipt with **`verifyX402ReceiptFull`** (per call) or **`verifyReceiptChain`**
+(channel). Both refuse unless you pass `expectedSigner`. `verifyAnyReceipt` only
+checks integrity and hands back the signer: it is not an acceptance check on its
+own, because a receipt re-signed by any key passes it.
 
 ```js
 import { readSettlement, verifyX402ReceiptFull } from '@bsvkey/x402-bsv-client';
@@ -179,7 +182,7 @@ const paid = readSettlement(res);                     // { txid, payer, ... } YO
 
 const { receiptPubKey } = await (await fetch('https://inference.bsvkey.com/v1/receipt-key')).json();
 const v = await verifyX402ReceiptFull(receipt, {
-  expectedSigner: receiptPubKey,       // signer is the pinned broker key
+  expectedSigner: receiptPubKey,       // REQUIRED: the pinned broker key; missing refuses
   settlementRef: paid.txid,            // REQUIRED — the tx you paid, from your context
   payer: paid.payer,                   // optional — the address you paid from
   messages, completion,                // the response you hold
@@ -191,7 +194,11 @@ id, recovering its signer, and matching the delivered bytes are all true for
 whoever holds it. It is **yours** only when you check its `settlementRef` against
 the txid you actually paid — which is why `settlementRef` is **required** and an
 unbound check *refuses* rather than passing. Pass it from `readSettlement(res)`,
-never read it back out of the receipt. Lower-level pieces if you want them:
+never read it back out of the receipt. The same goes for the signer: it is
+**yours to pin**, so `expectedSigner` is also required and a missing pin refuses
+(`unpinned`) instead of accepting whatever key signed it. Lower-level pieces if
+you want them (none of these is an acceptance check alone):
+`verifyAnyReceipt` (integrity + returns the signer, for either schema),
 `verifyX402Receipt` (authorship), `bindX402Receipt(receipt, { settlementRef, payTo, amountAtomic, payer })`
 (the binding), `verifyX402Delivery(receipt, { messages, completion })` (the bytes).
 
