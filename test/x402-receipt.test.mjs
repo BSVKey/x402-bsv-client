@@ -91,3 +91,12 @@ test('the signer pin is required: a throwaway-key copy is refused, not passed (S
   assert.equal(any.ok, true);
   assert.notEqual(any.signer, pub);
 });
+
+test('binding compares Base58 addresses exactly, hex in any case', () => {
+  const flip = (s) => [...s].map((c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase())).join('');
+  const payTo = receipt.payTo, payer = receipt.payer;
+  assert.equal(bindX402Receipt(receipt, { settlementRef, payTo }).ok, true);
+  assert.equal(bindX402Receipt(receipt, { settlementRef, payTo: flip(payTo) }).reason, 'payTo_mismatch');
+  if (payer) assert.equal(bindX402Receipt(receipt, { settlementRef, payer: flip(payer) }).reason, 'payer_not_mine');
+  assert.equal(bindX402Receipt(receipt, { settlementRef: settlementRef.toUpperCase() }).ok, true, 'a hex txid matches in any case');
+});

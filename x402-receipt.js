@@ -93,7 +93,10 @@ export function bindX402Receipt(receipt, expected = {}) {
   if (!expected || typeof expected !== 'object' || !expected.settlementRef) {
     return { ok: false, reason: 'unbound: verifier must supply the settlementRef it paid' };
   }
-  const eq = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
+  // Hex values (txids, 0x EVM addresses) match in any case; Base58 addresses
+  // (BSV, XRP) are case-sensitive, so they must match exactly.
+  const isHex = (v) => /^(0x)?[0-9a-f]+$/i.test(String(v));
+  const eq = (a, b) => (isHex(a) && isHex(b)) ? String(a).toLowerCase() === String(b).toLowerCase() : String(a) === String(b);
   if (!eq(receipt.settlementRef, expected.settlementRef)) return { ok: false, reason: 'settlementRef_not_mine' };
   if (expected.payTo !== undefined && !eq(receipt.payTo, expected.payTo)) return { ok: false, reason: 'payTo_mismatch' };
   if (expected.amountAtomic !== undefined && Number(receipt.amountAtomic) !== Number(expected.amountAtomic)) return { ok: false, reason: 'amount_mismatch' };
