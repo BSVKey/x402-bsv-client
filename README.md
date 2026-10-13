@@ -161,6 +161,22 @@ provider's usage as relayed by the broker (`provider`), or the broker's publishe
 estimate when the provider reported none (`estimate`). Versions before 0.6.0
 reject v3 with `bad_schema`.
 
+### Sub-satoshi charges (usage-receipt/4, 0.8.0+)
+
+Calls on a BSVKey non-custodial channel are charged exactly, in millisatoshis,
+instead of being rounded up to a whole satoshi per call. They get a
+`bsvkey.usage-receipt/4`: the v2 fields (plus the v3 fields when a call has hidden
+tokens) and `k` (1000), `microSats` (this call), `cumMicro` (running total) and
+`minChargeMicro`. `sats` and `cumSats` stay whole satoshis: `cumSats` is
+`floor(cumMicro / 1000)`, the amount you sign on-chain.
+
+The same verifiers handle it. `verifyCharge` recomputes `microSats` with
+`computeChargeMicro`; `verifyReceipt` refuses `cumSats_not_floor_of_cumMicro` and
+`sats_not_whole_sats_crossed`; `verifyReceiptChain` reconciles `cumMicro` and
+refuses `mixed_receipt_versions`. At close, check the amount you are asked to sign
+with `closeSatsFromMicro(cumMicro, depositSats - feeSats)`: the exact total rounded
+half up (Q*). Versions before 0.8.0 reject v4 with `bad_schema`.
+
 ## Verify per-call x402 receipts
 
 The prepaid-channel path returns a `usageReceipt` (above). The **per-call** paths

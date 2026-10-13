@@ -1,4 +1,4 @@
-// Verify BSVKey inference usage receipts (v2), client-side, offline.
+// Verify BSVKey inference usage receipts (v2, v3, v4), client-side, offline.
 //
 // The broker returns a signed `usageReceipt` on every settled prepaid-channel
 // call. This verifies it with no round-trip and no trust in the broker's word:
@@ -37,6 +37,15 @@ export const RECEIPT_SCHEMA = 'bsvkey.usage-receipt/2';
 export const RECEIPT_SCHEMA_V3 = 'bsvkey.usage-receipt/3';
 const V3_FIELDS = ['hiddenInputTokens', 'hiddenOutputTokens', 'hiddenSource', 'maxOutputTokens'];
 const HIDDEN_SOURCES = new Set(['provider', 'estimate']);
+// v4 = sub-satoshi metering (non-custodial channels). The call is charged exactly in
+// millisatoshis (k = 1000 per sat): microSats this call, cumMicro the running total,
+// minChargeMicro the per-call floor. sats and cumSats stay whole satoshis: cumSats is
+// floor(cumMicro / k), the amount the customer signs on-chain, and sats is how many
+// whole satoshis this call pushed it up (often 0). The fraction left at close is
+// settled once by Q* (closeSatsFromMicro). v3 hidden-token fields may ride along.
+export const RECEIPT_SCHEMA_V4 = 'bsvkey.usage-receipt/4';
+export const SUBSAT_K = 1000;
+const V4_FIELDS = ['k', 'microSats', 'cumMicro', 'minChargeMicro'];
 export const METER_ID = 'bsvkey-meter/1';
 
 const CONTENT_FIELDS = [
@@ -44,7 +53,7 @@ const CONTENT_FIELDS = [
   'inputTokens', 'outputTokens', 'inputDigest', 'outputDigest',
   'rateInPer1k', 'rateOutPer1k', 'webSearchSats', 'discountPct', 'minChargeSats',
   'sats', 'cumTokens', 'cumSats', 'fundedSats', 'timestamp',
-  ...V3_FIELDS,
+  ...V3_FIELDS, ...V4_FIELDS,
 ];
 const ALLOWED_KEYS = new Set([...CONTENT_FIELDS, 'claimId', 'signature', 'brokerPubKey']);
 
@@ -106,13 +115,42 @@ export function computeChargeSats({ inputTokens, outputTokens, hiddenInputTokens
   return Math.max(minChargeSats, afterDiscount);
 }
 
+// v4: the same formula in millisatoshis, with no rounding to whole satoshis per call.
+// At k = 1000 a rate of N sats per 1k tokens is exactly N millisats per token.
+export function computeChargeMicro({ inputTokens, outputTokens, hiddenInputTokens = 0, hiddenOutputTokens = 0, rateInPer1k, rateOutPer1k, webSearchSats = 0, discountPct = 0, minChargeMicro = 0 }) {
+  const gross = Math.ceil((inputTokens + hiddenInputTokens) * rateInPer1k + (outputTokens + hiddenOutputTokens) * rateOutPer1k) + webSearchSats * SUBSAT_K;
+  const afterDiscount = Math.ceil((gross * (100 - discountPct)) / 100);
+  return Math.max(minChargeMicro, afterDiscount);
+}
+
+// What a v4 channel settles at close: Q* (largest remainder, ties to the broker) over
+// [cumMicro, pool - cumMicro], which for two parties is cumMicro / k rounded half up.
+// Check the close the broker asks you to sign against this.
+export function closeSatsFromMicro(cumMicro, poolSats, k = SUBSAT_K) {
+  if (!Number.isSafeInteger(cumMicro) || cumMicro < 0 || cumMicro > poolSats * k) throw new Error('closeSatsFromMicro: cumMicro out of range');
+  const whole = Math.floor(cumMicro / k);
+  const rem = cumMicro % k;
+  return rem > 0 && rem >= k - rem ? whole + 1 : whole;
+}
+
 // v3's extra fields must all be present and well-formed; v2 must carry none.
+// v4's must all be present, consistent with the whole-satoshi totals, and the v3
+// fields ride along all or none.
 function checkVersionFields(r) {
+  const nonNegInt = (x) => Number.isSafeInteger(x) && x >= 0;
   if (r.v === RECEIPT_SCHEMA) {
-    for (const k of V3_FIELDS) if (r[k] !== undefined) return `unknown_field:${k}`;
+    for (const k of [...V3_FIELDS, ...V4_FIELDS]) if (r[k] !== undefined) return `unknown_field:${k}`;
     return null;
   }
-  const nonNegInt = (x) => Number.isInteger(x) && x >= 0;
+  if (r.v === RECEIPT_SCHEMA_V3) for (const k of V4_FIELDS) if (r[k] !== undefined) return `unknown_field:${k}`;
+  if (r.v === RECEIPT_SCHEMA_V4) {
+    if (r.k !== SUBSAT_K) return `bad_k:${r.k}`;
+    if (!nonNegInt(r.microSats) || !nonNegInt(r.cumMicro) || !nonNegInt(r.minChargeMicro)) return 'bad_micro_fields';
+    if (r.microSats > r.cumMicro) return 'bad_micro_fields';
+    if (r.cumSats !== Math.floor(r.cumMicro / r.k)) return 'cumSats_not_floor_of_cumMicro';
+    if (r.sats !== r.cumSats - Math.floor((r.cumMicro - r.microSats) / r.k)) return 'sats_not_whole_sats_crossed';
+    if (V3_FIELDS.every((k) => r[k] === undefined)) return null; // no hidden tokens
+  }
   if (!nonNegInt(r.hiddenInputTokens) || !nonNegInt(r.hiddenOutputTokens)) return 'bad_hidden_tokens';
   if (r.hiddenInputTokens + r.hiddenOutputTokens === 0) return 'bad_hidden_tokens';
   if (!HIDDEN_SOURCES.has(r.hiddenSource)) return `bad_hidden_source:${r.hiddenSource}`;
@@ -125,7 +163,7 @@ function checkVersionFields(r) {
 export async function verifyReceipt(receipt) {
   if (receipt === null || typeof receipt !== 'object') return { ok: false, reason: 'not_an_object' };
   for (const k of Object.keys(receipt)) if (!ALLOWED_KEYS.has(k)) return { ok: false, reason: `unknown_field:${k}` };
-  if (receipt.v !== RECEIPT_SCHEMA && receipt.v !== RECEIPT_SCHEMA_V3) return { ok: false, reason: `bad_schema:${receipt.v}` };
+  if (receipt.v !== RECEIPT_SCHEMA && receipt.v !== RECEIPT_SCHEMA_V3 && receipt.v !== RECEIPT_SCHEMA_V4) return { ok: false, reason: `bad_schema:${receipt.v}` };
   const vf = checkVersionFields(receipt);
   if (vf) return { ok: false, reason: vf };
   if (computeClaimId(receipt).toLowerCase() !== String(receipt.claimId).toLowerCase()) return { ok: false, reason: 'claimId_mismatch' };
@@ -152,6 +190,12 @@ export async function verifyReceipt(receipt) {
 export function verifyCharge(receipt) {
   if (receipt.v === RECEIPT_SCHEMA_V3 && receipt.hiddenOutputTokens > Math.max(0, receipt.maxOutputTokens - receipt.outputTokens)) {
     return { ok: false, reason: 'hidden_output_exceeds_allowance', expected: Math.max(0, receipt.maxOutputTokens - receipt.outputTokens), got: receipt.hiddenOutputTokens };
+  }
+  if (receipt.v === RECEIPT_SCHEMA_V4) {
+    // Exact charge in millisatoshis. Less is never a dispute (a capped final call).
+    const expectedMicro = computeChargeMicro(receipt);
+    if (receipt.microSats > expectedMicro) return { ok: false, reason: 'overcharge', expected: expectedMicro, got: receipt.microSats, unit: 'millisat' };
+    return receipt.microSats === expectedMicro ? { ok: true } : { ok: true, note: 'undercharged' };
   }
   const expected = computeChargeSats(receipt);
   if (receipt.sats > expected) return { ok: false, reason: 'overcharge', expected, got: receipt.sats };
@@ -198,7 +242,11 @@ export async function verifyReceiptChain(receipts, opts = {}) {
   // A chain signed by an unknown key proves nothing: the pin is required.
   if (!opts || !opts.expectedSigner) return { ok: false, reason: 'unpinned: verifier must supply expectedSigner (the broker key from GET /v1/receipt-key)', count: 0 };
   const list = [...receipts].sort((a, b) => (a.seq || 0) - (b.seq || 0));
-  let prevSeq = 0, prevCumSats = 0, prevCumTokens = 0, prevFunded = 0;
+  let prevSeq = 0, prevCumSats = 0, prevCumTokens = 0, prevFunded = 0, prevCumMicro = 0;
+  // A channel is metered one way for its whole life: whole satoshis (v2/v3) or
+  // millisatoshis (v4). A mix means the running totals cannot be reconciled.
+  const v4 = list.filter((r) => r && r.v === RECEIPT_SCHEMA_V4).length;
+  if (v4 && v4 !== list.length) return { ok: false, reason: 'mixed_receipt_versions', count: 0 };
   for (const r of list) {
     const v = await verifyReceipt(r);
     if (!v.ok) return { ok: false, reason: v.reason, seq: r.seq };
@@ -209,6 +257,10 @@ export async function verifyReceiptChain(receipts, opts = {}) {
     if (r.seq !== prevSeq + 1) return { ok: false, reason: prevSeq && r.seq === prevSeq ? 'replayed_seq' : 'seq_gap', seq: r.seq };
     if (r.cumSats !== prevCumSats + r.sats) return { ok: false, reason: 'cumSats_does_not_reconcile', seq: r.seq };
     if (r.cumTokens !== prevCumTokens + r.inputTokens + r.outputTokens) return { ok: false, reason: 'cumTokens_does_not_reconcile', seq: r.seq };
+    if (v4) {
+      if (r.cumMicro !== prevCumMicro + r.microSats) return { ok: false, reason: 'cumMicro_does_not_reconcile', seq: r.seq };
+      prevCumMicro = r.cumMicro;
+    }
     if (r.fundedSats !== undefined) {
       // fundedSats is monotonic across a channel: a top-up raises it, so a DROP is
       // tampering. A receipt must never claim MORE funding than you actually put
@@ -223,5 +275,5 @@ export async function verifyReceiptChain(receipts, opts = {}) {
     }
     prevSeq = r.seq; prevCumSats = r.cumSats; prevCumTokens = r.cumTokens;
   }
-  return { ok: true, count: list.length, cumSats: prevCumSats, cumTokens: prevCumTokens };
+  return { ok: true, count: list.length, cumSats: prevCumSats, cumTokens: prevCumTokens, ...(v4 ? { cumMicro: prevCumMicro } : {}) };
 }
